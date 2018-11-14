@@ -225,6 +225,9 @@ class Es2csv:
                 for line in codecs.open(self.tmp_file, mode='r', encoding='utf-8'):
                     timer += 1
                     bar.update(timer)
+                    line = ''.join(line.splitlines())
++                   line = line.replace('\\n', ' ')
++                   line = line.replace('\\r', ' ')
                     csv_writer.writerow(json.loads(line))
                 output_file.close()
                 bar.finish()

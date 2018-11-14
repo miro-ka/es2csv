@@ -226,8 +226,8 @@ class Es2csv:
                     timer += 1
                     bar.update(timer)
                     line = ''.join(line.splitlines())
-+                   line = line.replace('\\n', ' ')
-+                   line = line.replace('\\r', ' ')
+                    line = line.replace('\\n', ' ')
+                    line = line.replace('\\r', ' ')
                     csv_writer.writerow(json.loads(line))
                 output_file.close()
                 bar.finish()

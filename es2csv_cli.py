@@ -15,12 +15,13 @@ import sys
 import argparse
 import es2csv
 
-__version__ = '5.5.2'
+__version__ = '5.5.3'
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('-q', '--query', dest='query', type=str, required=True, help='Query string in Lucene syntax.')
+    p.add_argument('-c', '--custom-parser1', dest='custom_parser_1',  action='store_true', required=False, help='Custom parser - special flattening')
     p.add_argument('-u', '--url', dest='url', default='http://localhost:9200', type=str, help='Elasticsearch host URL. Default is %(default)s.')
     p.add_argument('-a', '--auth', dest='auth', type=str, required=False, help='Elasticsearch basic authentication in the form of username:password.')
     p.add_argument('-i', '--index-prefixes', dest='index_prefixes', default=['logstash-*'], type=str, nargs='+', metavar='INDEX', help='Index name prefix(es). Default is %(default)s.')
@@ -51,7 +52,8 @@ def main():
     es.create_connection()
     es.check_indexes()
     es.search_query()
-    es.write_to_csv()
+    if not opts.custom_parser_1:
+        es.write_to_csv()
     es.clean_scroll_ids()
 
 

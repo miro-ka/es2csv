@@ -2,6 +2,7 @@ import os
 import time
 import json
 import codecs
+import pandas as pd
 import elasticsearch
 import progressbar
 from backports import csv
@@ -131,8 +132,10 @@ class Es2csv:
             print(json.dumps(res, ensure_ascii=False).encode('utf8'))
 
         if self.num_results > 0:
-            codecs.open(self.opts.output_file, mode='w', encoding='utf-8').close()
-            codecs.open(self.tmp_file, mode='w', encoding='utf-8').close()
+
+            if not self.opts.custom_parser_1:
+                codecs.open(self.opts.output_file, mode='w', encoding='utf-8').close()
+                codecs.open(self.tmp_file, mode='w', encoding='utf-8').close()
 
             hit_list = []
             total_lines = 0
@@ -171,6 +174,12 @@ class Es2csv:
             bar.finish()
 
     def flush_to_file(self, hit_list):
+        if self.opts.custom_parser_1:
+            print('Flushing data with custom_parser_1,..')
+            df = self.parse_epg_json_data_to_df(hit_list)
+            self.save_append_df_to_csv(df, self.opts.output_file)
+            return
+
         def to_keyvalue_pairs(source, ancestors=[], header_delimeter='.'):
             def is_list(arg):
                 return type(arg) is list
@@ -203,6 +212,101 @@ class Es2csv:
                     to_keyvalue_pairs(hit['_source'])
                     tmp_file.write('{}\n'.format(json.dumps(out)))
         tmp_file.close()
+
+    def parse_epg_json_data_to_df(self, data, buffer_dump_interval=100):
+        """
+        Converts/flattens json object
+        """
+        df = pd.DataFrame()
+        data_len = len(data)
+        events_buffer = []
+
+        for idx, element in enumerate(data):
+            events_buffer.extend(self.epg_events_source_to_list(element))
+
+            if idx % buffer_dump_interval == 0:
+                df_elem = pd.DataFrame(events_buffer)
+                events_buffer = []
+
+                df = df.append(df_elem, sort=True)
+                print(str(idx) + '/' + str(data_len) + ' - ' + str(df.shape))
+
+        if len(events_buffer) > 0:
+            df_elem = pd.DataFrame(events_buffer)
+            df = df.append(df_elem, sort=True)
+            print(str(idx) + '/' + str(data_len) + ' - ' + str(df.shape))
+        return df
+
+    @staticmethod
+    def flatten_json(y):
+        """
+        Flattens json and returns dir
+        Credits: https://towardsdatascience.com/flattening-json-objects-in-python-f5343c794b10
+        """
+        out = {}
+
+        def flatten(x, name=''):
+            if type(x) is dict:
+                for a in x:
+                    flatten(x[a], name + a + '_')
+            elif type(x) is list:
+                i = 0
+                for a in x:
+                    flatten(a, name + str(i) + '_')
+                    i += 1
+            else:
+                out[name[:-1]] = x
+        flatten(y)
+        return out
+
+    def get_epg_metadata_dict(self, element, flatten_element='eventList'):
+        """
+        Returns epg metadata (_source elements)
+        """
+        meta_data = dict()
+        for key in list(element.keys()):
+            if key == flatten_element:
+                return meta_data
+            if key == '_source':
+                res = self.get_epg_metadata_dict(element['_source'])
+                meta_data = {**meta_data, **res}
+            else:
+                meta_data[key] = element[key]
+        return meta_data
+
+    def epg_events_source_to_list(self, source):
+        """
+        Converts epg json events source to dict list
+        """
+        epg_meta = self.get_epg_metadata_dict(source)
+        events = source['_source']['eventList']
+        dict_list = []
+        for event in events:
+            event_dict = self.flatten_json(event)
+            event_dict = {**event_dict, **epg_meta}
+            dict_list.append(event_dict)
+        return dict_list
+
+    @staticmethod
+    def save_append_df_to_csv(df, csv_file_path, sep=","):
+        """
+        Saves data to csv
+        """
+        print('saving new data - shape:' + str(df.shape))
+        if df.empty:
+            return
+        if os.path.isfile(csv_file_path):
+            df_file = pd.read_csv(csv_file_path, sep=sep, low_memory=False)
+            print('existing_data - shape:' + str(df.shape))
+            df = df_file.append(df, sort=True)
+            print('merged_data - shape:' + str(df.shape))
+        df.to_csv(csv_file_path, index=False, sep=sep)
+
+    def clean_scroll_ids(self):
+        try:
+            self.es_conn.clear_scroll(body=','.join(self.scroll_ids))
+        except:
+            pass
 
     def write_to_csv(self):
         if self.num_results > 0:
